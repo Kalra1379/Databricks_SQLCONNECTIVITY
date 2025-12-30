@@ -1,43 +1,163 @@
-# JDBC connection details
-jdbc_url = "jdbc:oracle:thin:@//host:1521/SERVICE_NAME"
-username = "EPRESCRIBING"
-password = "pre#snk"
+Log Pipeline Started
+        ↓
+Truncate Registry Data   (FULL load only)
+        ↓
+Get File Path (lookup from DB)
+        ↓
+Mapper (format lookup output)
+        ↓
+Directory Browser (S3 path)
+        ↓
+Gate (ignore empty)
+        ↓
+Router
+   ├── output0 → Incremental load path
+   └── output1 → Full load path
 
-# Access JVM
-jvm = spark._sc._gateway.jvm
 
-conn = None
-stmt = None
 
-try:
-    # Create JDBC connection
-    conn = jvm.java.sql.DriverManager.getConnection(
-        jdbc_url,
-        username,
-        password
-    )
+from datetime import datetime
+import jaydebeapi
 
-    # Prepare callable statement
-    stmt = conn.prepareCall(
-        "{call EPRESCRIBING.SP_NEWRX_PROCESS_LOG(?, ?, ?, ?)}"
-    )
+# ---------- DAY CHECK ----------
+today = datetime.now()
+is_weekend = today.weekday() >= 5
 
-    # Set parameters (ORDER MATTERS)
-    stmt.setString(1, "PIPELINE STARTED")
-    stmt.setString(2, "Registry Data Full Load")
-    stmt.setString(3, "STARTED")
-    stmt.setString(4, "Process Started Registry Data Full Load")
+# ---------- DB CONNECTION ----------
+conn = jaydebeapi.connect(
+    "oracle.jdbc.driver.OracleDriver",
+    "jdbc:oracle:thin:@//HOST:PORT/SERVICE",
+    ["USER", "PWD"],
+    "/dbfs/FileStore/jars/ojdbc8.jar"
+)
+cursor = conn.cursor()
 
-    # Execute procedure
-    stmt.execute()
+# ---------- FULL LOAD PREP ----------
+if not is_weekend:
+    cursor.callproc("EPRESCRIBING.SP_NEWRX_TRUNCATE_REGISTRY_DATA")
+    conn.commit()
 
-    print("✔ Stored procedure executed successfully")
+# ---------- GET FILE PATH ----------
+df_lookup = spark.read \
+    .format("jdbc") \
+    .option("url", "jdbc:oracle:thin:@//HOST:PORT/SERVICE") \
+    .option("dbtable", "(SELECT * FROM LOOKUP_TABLE)") \
+    .option("user", "USER") \
+    .option("password", "PWD") \
+    .load()
 
-except Exception as e:
-    print("❌ Error executing stored procedure:", e)
+lookup_path = df_lookup.select("LOOKUP_VALUE").first()[0]
 
-finally:
-    if stmt:
-        stmt.close()
-    if conn:
-        conn.close()
+# ---------- DIRECTORY BROWSE ----------
+files = dbutils.fs.ls(lookup_path)
+files = [f.path for f in files if "full" in f.name]
+
+# ---------- GATE ----------
+if not files:
+    dbutils.notebook.exit("NO_FILES_FOUND")
+
+# ---------- ROUTER ----------
+if not is_weekend:
+    dbutils.notebook.run("/Pipelines/Full_Load", 0, {"path": lookup_path})
+else:
+    dbutils.notebook.run("/Pipelines/Incremental_Load", 0, {"path": lookup_path})
+
+cursor.close()
+conn.close()
+
+
+
+
+
+
+
+
+
+
+
+
+from datetime import datetime
+import jaydebeapi
+
+# ---------- PIPELINE NAME ----------
+pipeline_name = dbutils.notebook.entry_point.getDbutils() \
+    .notebook().getContext().notebookPath().get()
+
+# ---------- LOG PIPELINE START ----------
+conn = jaydebeapi.connect(
+    "oracle.jdbc.driver.OracleDriver",
+    "jdbc:oracle:thin:@//HOST:PORT/SERVICE",
+    ["USER", "PASSWORD"],
+    "/dbfs/FileStore/jars/ojdbc8.jar"
+)
+
+cursor = conn.cursor()
+cursor.callproc(
+    "EPRESCRIBING.SP_NEWRX_PROCESS_LOG",
+    [pipeline_name, "PIPELINE STARTED", "STARTED", "Process Started"]
+)
+conn.commit()
+cursor.close()
+conn.close()
+
+# ---------- CONDITIONAL EXECUTION ----------
+today = datetime.now()
+is_weekend = today.weekday() >= 5
+
+if not is_weekend:
+    dbutils.notebook.run("/Pipelines/Full_Load", 0)
+else:
+    dbutils.notebook.run("/Pipelines/Incremental_Load", 0)
+
+
+
+
+
+
+
+
+
+
+
+
+
+-------------call store procedure ------------
+
+
+
+
+
+import jaydebeapi
+
+conn = jaydebeapi.connect(
+    "oracle.jdbc.driver.OracleDriver",
+    jdbc_url,
+    ["DB_USER", "DB_PASSWORD"],
+    "/dbfs/FileStore/jars/ojdbc8.jar"
+)
+
+cursor = conn.cursor()
+
+cursor.callproc(
+    "EPRESCRIBING.SP_NEWRX_PROCESS_LOG",
+    [
+        pipeline_name,                     # PipelineName
+        "PIPELINE STARTED",                # Status
+        "STARTED",                         # ExecutionFlag
+        "Process Started to send Data"     # Message
+    ]
+)
+
+conn.commit()
+cursor.close()
+conn.close()
+
+
+
+
+
+
+
+
+**-
+
