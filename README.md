@@ -159,5 +159,91 @@ conn.close()
 
 
 
+
+
+
+
+
+def log_pipeline_status(pipeline_name, status, stage, message):
+    conn = jaydebeapi.connect(
+        "oracle.jdbc.driver.OracleDriver",
+        jdbc_url,
+        [oracle_user, oracle_password],
+        ojdbc_jar_path
+    )
+
+    cursor = conn.cursor()
+
+    cursor.callproc(
+        "EPRESCRIBING.SP_NEWRX_PROCESS_LOG",
+        [pipeline_name, status, stage, message]
+    )
+
+    cursor.close()
+    conn.close()
+
+    print("Logged:", pipeline_name, status)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    def run_weekday_pipeline():
+    pipeline_name = "PipelineName_Incremental"
+    status = "PIPELINE STARTED"
+    stage = "STARTED"
+    message = "Process Started to send Data to Dr First"
+
+    print("Weekday pipeline execution started")
+
+    # Log start
+    log_pipeline_status(pipeline_name, status, stage, message)
+
+    # ---- Business logic goes here ----
+    print("Running weekday data load logic...")
+
+
+
+
+
+
+    def run_weekend_pipeline():
+    pipeline_name = "PipelineName_Weekend"
+    status = "PIPELINE STARTED"
+    stage = "STARTED"
+    message = "Weekend incremental process started"
+
+    print("Weekend pipeline execution started")
+
+    # Log start
+    log_pipeline_status(pipeline_name, status, stage, message)
+
+    # ---- Business logic goes here ----
+    print("Running weekend maintenance logic...")
+
+
+
+
+
+
+
+
+    day_of_week = datetime.now().weekday()
+print("Day of week:", day_of_week)
+
+# Saturday = 5, Sunday = 6
+if day_of_week in (5, 6):
+    run_weekend_pipeline()
+else:
+    run_weekday_pipeline()
 **-
 
