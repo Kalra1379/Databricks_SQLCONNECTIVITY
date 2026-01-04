@@ -1,50 +1,53 @@
-# ---------------------------------------------
-# 1. JDBC Connection details
-# ---------------------------------------------
-jdbc_url = "jdbc:oracle:thin:@//ISRIDP03.humana.com:1810/IDDDEV"
-
+# -----------------------------
+# DB credentials
+# -----------------------------
 username = "EPRESCRIBING"
-password = "Pr#srlk"
+password = "presrik"
+dw_server = "ISB1D003.humana.com"
+port = "1810"
+database_name = "IDDDEV"
 
-driver = "oracle.jdbc.driver.OracleDriver"
+proc_name = "EPRESCRIBING.SP_NEW_RX_PROCESS_LOG"
 
+pipeline_name = "PIPELINE_STARTED"
+status = "STARTED"
+description = "Process Started Registry Data Full Load"
 
-# ---------------------------------------------
-# 2. Get Java JDBC connection from Spark
-# ---------------------------------------------
-java_import(spark._sc._gateway.jvm, "java.sql.DriverManager")
+# -----------------------------
+# JDBC URL (CORRECT)
+# -----------------------------
+jdbc_url = f"jdbc:oracle:thin:@//{dw_server}:{port}/{database_name}"
 
-conn = spark._sc._gateway.jvm.DriverManager.getConnection(
-    jdbc_url,
-    username,
-    password
-)
+# -----------------------------
+# JVM access
+# -----------------------------
+jvm = spark._sc._gateway.jvm
+DriverManager = jvm.java.sql.DriverManager
+Types = jvm.java.sql.Types
 
+# -----------------------------
+# Create connection
+# -----------------------------
+conn = DriverManager.getConnection(jdbc_url, username, password)
 
-# ---------------------------------------------
-# 3. Prepare Stored Procedure call
-# ---------------------------------------------
-call_stmt = conn.prepareCall(
-    "{call EPRESCRIBING.SP_NEWRXL_PROCESS_LOG(?, ?, ?, ?)}"
-)
+# -----------------------------
+# Prepare callable statement
+# -----------------------------
+call = conn.prepareCall("{call " + proc_name + "(?, ?, ?)}")
 
-# ---------------------------------------------
-# 4. Set Stored Procedure parameters
-# ---------------------------------------------
-call_stmt.setString(1, "_PipelineName_Incremental")
-call_stmt.setString(2, "PIPELINE STARTED")
-call_stmt.setString(3, "STARTED")
-call_stmt.setString(4, "Process Started to send Data to Dr First")
+call.setString(1, pipeline_name)
+call.setString(2, status)
+call.setString(3, description)
 
-# ---------------------------------------------
-# 5. Execute Stored Procedure
-# ---------------------------------------------
-call_stmt.execute()
+# -----------------------------
+# Execute
+# -----------------------------
+call.execute()
 
-# ---------------------------------------------
-# 6. Close resources
-# ---------------------------------------------
-call_stmt.close()
+# -----------------------------
+# Close resources
+# -----------------------------
+call.close()
 conn.close()
 
 print("Stored Procedure executed successfully")
