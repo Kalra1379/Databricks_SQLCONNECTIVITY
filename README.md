@@ -1,53 +1,64 @@
-# -----------------------------
-# DB credentials
-# -----------------------------
-username = "EPRESCRIBING"
-password = "presrik"
-dw_server = "ISB1D003.humana.com"
-port = "1810"
-database_name = "IDDDEV"
+# ================================
+# Directory Browser (Databricks)
+# ================================
 
-proc_name = "EPRESCRIBING.SP_NEW_RX_PROCESS_LOG"
+import json
+import os
 
-pipeline_name = "PIPELINE_STARTED"
-status = "STARTED"
-description = "Process Started Registry Data Full Load"
+# Assume payload is already available from previous cell
+values = payload.get("P_OUTPUT_CURSOR_FULL", {}).get("values", [])
 
-# -----------------------------
-# JDBC URL (CORRECT)
-# -----------------------------
-jdbc_url = f"jdbc:oracle:thin:@//{dw_server}:{port}/{database_name}"
+# Extract first LOOKUP_VALUE (Directory)
+directory = values[0]["LOOKUP_VALUE"] if values else None
 
-# -----------------------------
-# JVM access
-# -----------------------------
-jvm = spark._sc._gateway.jvm
-DriverManager = jvm.java.sql.DriverManager
-Types = jvm.java.sql.Types
+if not directory:
+    raise ValueError("No LOOKUP_VALUE found in P_OUTPUT_CURSOR_FULL")
 
-# -----------------------------
-# Create connection
-# -----------------------------
-conn = DriverManager.getConnection(jdbc_url, username, password)
+print(f"Resolved directory for FULL: {directory}")
 
-# -----------------------------
-# Prepare callable statement
-# -----------------------------
-call = conn.prepareCall("{call " + proc_name + "(?, ?, ?)}")
+# Write directory to JSON so downstream tools (SnapLogic equivalent) can read
+out_dir = "/dbfs/tmp"
+out_file = os.path.join(out_dir, "directory_browser_output.json")
 
-call.setString(1, pipeline_name)
-call.setString(2, status)
-call.setString(3, description)
+os.makedirs(out_dir, exist_ok=True)
 
-# -----------------------------
-# Execute
-# -----------------------------
-call.execute()
+with open(out_file, "w") as f:
+    json.dump({"directory": directory}, f)
 
-# -----------------------------
-# Close resources
-# -----------------------------
-call.close()
-conn.close()
+print(f"Wrote directory browser output to {out_file}")
 
-print("Stored Procedure executed successfully")
+
+
+
+
+
+
+
+
+# ================================
+# Filter Snap (Databricks)
+# ================================
+
+from pyspark.sql import functions as F
+
+# Convert cursor output to DataFrame
+df = spark.createDataFrame(
+    payload["P_OUTPUT_CURSOR_FULL"]["values"]
+)
+
+# Resolve LASTEXECUTIONDATE
+df = df.withColumn(
+    "LASTEXECUTIONDATE_RESOLVED",
+    F.when(
+        F.col("LASTEXECUTIONDATE").isNull(),
+        F.date_sub(F.current_date(), 6)
+    ).otherwise(F.to_date("LASTEXECUTIONDATE"))
+)
+
+# Apply filter condition (SnapLogic equivalent)
+filtered_df = df.filter(
+    F.to_date(F.col("UPDATE_DATE")) > F.col("LASTEXECUTIONDATE_RESOLVED")
+)
+
+# Show filtered result
+filtered_df.show(truncate=False)
