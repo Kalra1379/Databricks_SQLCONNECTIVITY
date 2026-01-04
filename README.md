@@ -1,32 +1,32 @@
-from pyspark.sql import functions as F
-from pyspark.sql.types import StructType, StructField, StringType
+import paramiko
+from pyspark.sql import Row
 
-schema = StructType([
-    StructField("LOOKUP_VALUE", StringType(), True),
-    StructField("UPDATE_DATE", StringType(), True),
-    StructField("LASTEXECUTIONDATE", StringType(), True)
-])
+# ---- SFTP details ----
+SFTP_HOST = "sftp01.drfirst.com"
+SFTP_PORT = 22
+SFTP_USER = "your_user"
+SFTP_PASSWORD = "your_password"
+SFTP_DIR = "/"   # or subdirectory
 
+# ---- Connect ----
+transport = paramiko.Transport((SFTP_HOST, SFTP_PORT))
+transport.connect(username=SFTP_USER, password=SFTP_PASSWORD)
 
+sftp = paramiko.SFTPClient.from_transport(transport)
 
-df = spark.createDataFrame(
-    payload["P_OUTPUT_CURSOR_FULL"]["values"],
-    schema=schema
-)
+# ---- List files ----
+files = []
+for f in sftp.listdir_attr(SFTP_DIR):
+    files.append(Row(
+        file_name=f.filename,
+        file_path=f"{SFTP_DIR}/{f.filename}",
+        last_modified=f.st_mtime
+    ))
 
-df = df.withColumn(
-    "LASTEXECUTIONDATE_RESOLVED",
-    F.when(
-        F.col("LASTEXECUTIONDATE").isNull(),
-        F.date_sub(F.current_date(), 6)
-    ).otherwise(
-        F.to_date("LASTEXECUTIONDATE")
-    )
-)
+sftp.close()
+transport.close()
 
-filtered_df = df.filter(
-    F.to_date(F.col("UPDATE_DATE")) >
-    F.col("LASTEXECUTIONDATE_RESOLVED")
-)
+# ---- Create DataFrame ----
+files_df = spark.createDataFrame(files)
 
-filtered_df.show(truncate=False)
+files_df.show(truncate=False)
