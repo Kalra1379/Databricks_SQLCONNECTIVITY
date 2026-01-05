@@ -1,151 +1,110 @@
-from pyspark.sql.functions import col, from_unixtime, current_date, date_sub
+import zipfile
+import os
 
-filtered_files = files_df.withColumn(
-    "last_modified_date",
-    from_unixtime(col("last_modified")).cast("date")
-).filter(
-    col("last_modified_date") > date_sub(current_date(), 6)
+mock_zip_path = "/dbfs/tmp/NEWRX_TEST.zip"
+mock_extract_dir = "/dbfs/tmp/NEWRX_EXTRACTED"
+
+os.makedirs(mock_extract_dir, exist_ok=True)
+
+with zipfile.ZipFile(mock_zip_path, 'w') as z:
+    z.writestr("INEWRX_20250555.csv", "id,name\n1,Alice\n2,Bob")
+    z.writestr("INEWRX_20250556.csv", "id,name\n3,Charlie\n4,David")
+
+print("Mock ZIP created:", mock_zip_path)
+
+
+
+import zipfile
+
+zip_path = "/dbfs/tmp/NEWRX_TEST.zip"
+extract_path = "/dbfs/tmp/NEWRX_EXTRACTED"
+
+with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+    zip_ref.extractall(extract_path)
+
+print("Extracted files:")
+print(os.listdir(extract_path))
+
+
+
+csv_df = spark.read.option("header", True).csv(
+    "dbfs:/tmp/NEWRX_EXTRACTED/*.csv"
 )
 
-filtered_files.show(truncate=False)
+csv_df.show(truncate=False)
 
 
 
-from pyspark.sql.functions import to_date
+zip_files = json_split_df.select("filePath").collect()
 
-sorted_df = filtered_df.orderBy(
-    to_date(col("UPDATE_DATE")).desc()
+for row in zip_files:
+    zip_path = "/dbfs" + row["filePath"]   # adapt later for SFTP
+    extract_dir = "/dbfs/tmp/extracted_" + os.path.basename(zip_path)
+
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(extract_dir)
+
+    print("Extracted from:", zip_path)
+
+
+    # Check zip exists
+os.path.exists(mock_zip_path)
+
+# Check extracted files
+os.listdir("/dbfs/tmp/NEWRX_EXTRACTED")
+
+
+
+
+
+
+
+
+Add SFTP credentials (Databricks Secrets – BEST PRACTICE)
+Copy code
+Python
+SFTP_HOST = dbutils.secrets.get("sftp_scope", "host")
+SFTP_USER = dbutils.secrets.get("sftp_scope", "username")
+SFTP_PASS = dbutils.secrets.get("sftp_scope", "password")
+SFTP_PORT = 22
+2️⃣ Download ZIP from SFTP
+Copy code
+Python
+import paramiko
+
+SFTP_REMOTE_DIR = "/NEWRX/"
+LOCAL_ZIP_DIR = "/dbfs/tmp/sftp_zip"
+os.makedirs(LOCAL_ZIP_DIR, exist_ok=True)
+
+transport = paramiko.Transport((SFTP_HOST, SFTP_PORT))
+transport.connect(username=SFTP_USER, password=SFTP_PASS)
+
+sftp = paramiko.SFTPClient.from_transport(transport)
+
+remote_zip = SFTP_REMOTE_DIR + "NEWRX_TEST.zip"
+local_zip = LOCAL_ZIP_DIR + "/NEWRX_TEST.zip"
+
+sftp.get(remote_zip, local_zip)
+
+sftp.close()
+transport.close()
+
+print("✅ ZIP downloaded from SFTP:", local_zip)
+3️⃣ ZIPFILE READ (SAME CODE AS MOCK)
+Copy code
+Python
+import zipfile
+
+with zipfile.ZipFile(local_zip, "r") as zip_ref:
+    zip_ref.extractall(EXTRACT_DIR)
+
+print("✅ ZIP extracted from SFTP")
+print(os.listdir(EXTRACT_DIR))
+4️⃣ Read extracted CSV (UNCHANGED)
+Copy code
+Python
+csv_df = spark.read.option("header", True).csv(
+    "dbfs:/tmp/extracted/*.csv"
 )
 
-
-sorted_df.select(
-    "LOOKUP_VALUE",
-    "UPDATE_DATE",
-    "LASTEXECUTIONDATE_RESOLVED"
-).show(truncate=False)
-
-
-head_df = sorted_df.limit(1)
-
-
-head_df.show(truncate=False)
-
-
-
-row_count = head_df.count()
-print(f"Gate check - rows after Head: {row_count}")
-
-
-
-if row_count > 0:
-    print("Gate OPEN: Data available, proceeding...")
-    gated_df = head_df
-else:
-    print("Gate CLOSED: No data available, stopping pipeline")
-    gated_df = None
-
-
-
-
-
-    # FILTER → SORT → HEAD → GATE already done
-
-# ROUTER
-has_name = (
-    gated_df is not None and
-    "Name" in gated_df.columns and
-    gated_df.filter(gated_df.Name.isNotNull()).count() > 0
-)
-
-from datetime import datetime
-is_sunday = datetime.today().weekday() == 6
-
-if has_name:
-    route = "output0"
-elif (not has_name) and is_sunday:
-    route = "output1"
-else:
-    route = None
-
-print("Router selected:", route)
-
-
-
-
-
-from datetime import datetime
-
-# Check if Name exists and has data
-has_name = (
-    gated_df is not None and
-    "Name" in gated_df.columns and
-    gated_df.filter(gated_df.Name.isNotNull()).count() > 0
-)
-
-# Check if today is Sunday
-is_sunday = datetime.today().weekday() == 6  # Monday=0, Sunday=6
-
-print("Router debug:")
-print("Has Name:", has_name)
-print("Is Sunday:", is_sunday)
-
-# Decide route
-if has_name:
-    route = "output0"
-elif (not has_name) and is_sunday:
-    route = "output1"
-else:
-    route = None
-
-print("Router selected route:", route)
-
-
-
-
-if route == "output0":
-    print("Executing Output0 → JSON Splitter equivalent")
-
-    # Spark DataFrames are already split row-wise
-    json_split_df = gated_df
-
-    json_split_df.show(truncate=False)
-
-
-
-
-    from pyspark.sql.functions import explode
-
-if route == "output0":
-    print("Executing Output0 → JSON Splitter using explode")
-
-    json_split_df = gated_df.select(
-        explode("input0").alias("row")
-    )
-
-    json_split_df.show(truncate=False)
-
-if route == "output1":
-    print("Executing Output1 → Get Email Recipient")
-
-    jdbc_url = "jdbc:oracle:thin:@//HOST:PORT/SERVICE"
-    connection_props = {
-        "user": "USERNAME",
-        "password": "PASSWORD",
-        "driver": "oracle.jdbc.driver.OracleDriver"
-    }
-
-    query = """
-    (
-      SELECT EMAIL
-      FROM TABLE(EPRESCRIBING.SP_NEWRX_GET_LOOKUP('EMAIL_RECIPIENT'))
-    )
-    """
-
-    email_df = spark.read.jdbc(
-        url=jdbc_url,
-        table=query,
-        properties=connection_props
-    )
-
-    email_df.show(truncate=False)
-    
+csv_df.show(truncate=False)
