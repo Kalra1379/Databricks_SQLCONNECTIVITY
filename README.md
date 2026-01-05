@@ -1,47 +1,112 @@
+import zipfile
+import os
+
+MOCK_ZIP_DIR = "/dbfs/tmp/mock_zip"
+EXTRACT_DIR = "/dbfs/tmp/extracted"
+
+os.makedirs(MOCK_ZIP_DIR, exist_ok=True)
+os.makedirs(EXTRACT_DIR, exist_ok=True)
+
+mock_zip_path = f"{MOCK_ZIP_DIR}/NEWRX_TEST.zip"
+
+with zipfile.ZipFile(mock_zip_path, "w") as z:
+    z.writestr("INEWRX_20250555.csv", "id,name\n1,Alice\n2,Bob")
+    z.writestr("INEWRX_20250556.csv", "id,name\n3,Charlie\n4,David")
+
+print("✅ Mock ZIP created:", mock_zip_path)
+
+
 from pyspark.sql import Row
 
-directory_browser_df = spark.createDataFrame([
+json_split_df = spark.createDataFrame([
     Row(
-        fileName="NEWRX_20250801.csv",
-        filePath="/NEWRX_20250801.csv",
-        lastModified="2025-08-01"
-    ),
-    Row(
-        fileName="NEWRX_20250731.csv",
-        filePath="/NEWRX_20250731.csv",
-        lastModified="2025-07-31"
+        Name="NEWRX_TEST.zip",
+        original_directory="/tmp/mock_zip/"
     )
 ])
 
-directory_browser_df.show(truncate=False)
+json_split_df.show(truncate=False)
 
-from pyspark.sql.functions import to_date, current_date, date_sub
+import zipfile
 
-filtered_df = directory_browser_df.filter(
-    to_date("lastModified") > date_sub(current_date(), 6)
+for row in json_split_df.collect():
+    zip_path = "/dbfs" + row.original_directory + row.Name
+
+    with zipfile.ZipFile(zip_path, "r") as zip_ref:
+        zip_ref.extractall(EXTRACT_DIR)
+
+print("✅ ZIP extracted (MOCK)")
+print(os.listdir(EXTRACT_DIR))
+
+
+csv_df = spark.read.option("header", True).csv(
+    "dbfs:/tmp/extracted/*.csv"
 )
 
+csv_df.show(truncate=False)
 
+SCENARIO B (FUTURE): ✅ REAL SFTP ACCESS AVAILABLE
+⚠️ ONLY this part changes
+Everything else stays same.
+1️⃣ Add SFTP credentials (Databricks Secrets – BEST PRACTICE)
+Copy code
+Python
+SFTP_HOST = dbutils.secrets.get("sftp_scope", "host")
+SFTP_USER = dbutils.secrets.get("sftp_scope", "username")
+SFTP_PASS = dbutils.secrets.get("sftp_scope", "password")
+SFTP_PORT = 22
+2️⃣ Download ZIP from SFTP
+Copy code
+Python
+import paramiko
 
-sorted_df = filtered_df.orderBy(
-    to_date("lastModified").desc()
+SFTP_REMOTE_DIR = "/NEWRX/"
+LOCAL_ZIP_DIR = "/dbfs/tmp/sftp_zip"
+os.makedirs(LOCAL_ZIP_DIR, exist_ok=True)
+
+transport = paramiko.Transport((SFTP_HOST, SFTP_PORT))
+transport.connect(username=SFTP_USER, password=SFTP_PASS)
+
+sftp = paramiko.SFTPClient.from_transport(transport)
+
+remote_zip = SFTP_REMOTE_DIR + "NEWRX_TEST.zip"
+local_zip = LOCAL_ZIP_DIR + "/NEWRX_TEST.zip"
+
+sftp.get(remote_zip, local_zip)
+
+sftp.close()
+transport.close()
+
+print("✅ ZIP downloaded from SFTP:", local_zip)
+3️⃣ ZIPFILE READ (SAME CODE AS MOCK)
+Copy code
+Python
+import zipfile
+
+with zipfile.ZipFile(local_zip, "r") as zip_ref:
+    zip_ref.extractall(EXTRACT_DIR)
+
+print("✅ ZIP extracted from SFTP")
+print(os.listdir(EXTRACT_DIR))
+4️⃣ Read extracted CSV (UNCHANGED)
+Copy code
+Python
+csv_df = spark.read.option("header", True).csv(
+    "dbfs:/tmp/extracted/*.csv"
 )
 
+csv_df.show(truncate=False)
+🟨 FINAL SWITCHABLE PIPELINE (BEST PRACTICE)
+Copy code
+Python
+USE_SFTP = False   # change to True later
 
-head_df = sorted_df.limit(1)
-head_df.show(truncate=False)
-
-
-has_files = head_df.count() > 0
-
-from datetime import datetime
-is_sunday = datetime.today().weekday() == 6
-
-if has_files:
-    route = "output0"
-elif (not has_files) and is_sunday:
-    route = "output1"
+if USE_SFTP:
+    print("🔐 Using REAL SFTP")
+    zip_path = "/dbfs/tmp/sftp_zip/NEWRX_TEST.zip"
 else:
-    route = None
+    print("🧪 Using MOCK ZIP")
+    zip_path = "/dbfs/tmp/mock_zip/NEWRX_TEST.zip"
 
-print("Router selected:", route)
+with zipfile.ZipFile(zip_path, "r") as zip_ref:
+    zip_ref.extractall("/dbfs/tmp/extracted")
