@@ -1,29 +1,11 @@
-previous_output = []
+import smbclient
+import zipfile
 
-for f in files:
-    if f.filename not in [".", ".."]:
-        previous_output.append({
-            "Name": f.filename,
-            "Path": f"smb://{server_ip}/{share_name}/{directory_path}/{f.filename}",
-            "Type": "directory" if f.isDirectory else "file",
-            "Size": f.file_size,
-            "LastModified": datetime.fromtimestamp(
-                f.last_write_time
-            ).strftime("%Y-%m-%d %H:%M:%S")
-        })
+smbclient.register_session("server", username="u", password="p")
 
+with smbclient.open_file("smb://server/path/file.zip", "rb") as f:
+    with open("/dbfs/tmp/file.zip", "wb") as out:
+        out.write(f.read())
 
-  gate_output = {
-    "input0": []
-}
-
-for item in previous_output:
-    gate_output["input0"].append({
-        **item,
-        "original": {
-            "directory": "smb://louiswsts1221.rsc.humad.com/FtpRoot/Web_Drug_Info/FEnIntegration/Test/Arpit"
-        }
-    })     
-
-    import json
-print(json.dumps(gate_output, indent=2))
+with zipfile.ZipFile("/dbfs/tmp/file.zip") as z:
+    z.extractall("/dbfs/tmp/unzipped")
