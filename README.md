@@ -1,31 +1,48 @@
-temp_output_dir = "/dbfs/tmp/file_writer_output"
+from smb.SMBConnection import SMBConnection
+import socket
+import json
+from datetime import datetime
 
-(
-    csv_df
-    .coalesce(1)                     # single output file
-    .write
-    .mode("overwrite")               # OVERWRITE (SnapLogic)
-    .option("header", True)
-    .csv(temp_output_dir)
+# Connection details
+server_name = "louiswsts1221"
+server_ip = "louiswsts1221.rsc.humad.com"
+share_name = "FtpRoot"
+
+username = "Humana_prod_ftp_user"
+password = "YOUR_PASSWORD"
+client_machine_name = socket.gethostname()
+
+# Connect
+conn = SMBConnection(
+    username,
+    password,
+    client_machine_name,
+    server_name,
+    use_ntlm_v2=True
 )
 
+conn.connect(server_ip, 445)
 
-import os
-import shutil
+# Directory path
+directory_path = "Web_Drug_Info/FEnIntegration/Test/Arpit"
 
-final_output_path = f"{BASE_OUTPUT_PATH}/{CONTENT_LOCATION}"
+# List directory
+files = conn.listPath(share_name, directory_path)
 
-# Find Spark-generated CSV
-files = os.listdir(temp_output_dir)
-part_file = [f for f in files if f.startswith("part-") and f.endswith(".csv")][0]
+# Convert to JSON
+output = []
 
-# Ensure output directory exists
-os.makedirs(os.path.dirname(final_output_path), exist_ok=True)
+for f in files:
+    if f.filename not in [".", ".."]:
+        output.append({
+            "Name": f.filename,
+            "Path": f"smb://{server_ip}/{share_name}/{directory_path}/{f.filename}",
+            "Type": "directory" if f.isDirectory else "file",
+            "Size": f.file_size,
+            "LastModified": datetime.fromtimestamp(
+                f.last_write_time
+            ).strftime("%Y-%m-%d %H:%M:%S")
+        })
 
-# Move + rename
-shutil.move(
-    f"{temp_output_dir}/{part_file}",
-    final_output_path
-)
-
-print("✅ File written to:", final_output_path)
+# Print JSON
+print(json.dumps(output, indent=2))
