@@ -1,31 +1,30 @@
-import os
-import zipfile
+def mapper(rec: dict) -> dict:
+    return {
+        "NPI": rec.get("NPI", ""),
+        "First Name": rec.get("First Name", ""),
+        "Last Name": rec.get("Last Name", ""),
 
-file_doc = {
-    "Name": "drfirst_rcopia4_provider_location_full_20260104.zip",
-    "original": {
-        "directory": "smb://louiswsts1221.rsc.humad.com/FtpRoot/Web_Drug_Info/FEnIntegration/Test/Arpit"
+        "primaryTelephone": rec.get("Primary Telephone", ""),
+        "state": rec.get("State", ""),
+        "stateLicense": rec.get("State License", ""),
+        "suffix": rec.get("Suffix", ""),
+
+        "surescriptsAddressLine1": rec.get("Surescripts Address Line1", ""),
+        "surescriptsAddressLine2": rec.get("Surescripts Address Line2", ""),
+        "surescriptsCity": rec.get("Surescripts City", ""),
+        "surescriptsCountryCode": rec.get("Surescripts Country Code", ""),
+        "surescriptsFax": rec.get("Surescripts Fax", ""),
+        "surescriptsPermissions": rec.get("Surescripts Permissions", ""),
+        "surescriptsPostalCode": rec.get("Surescripts Postal Code", ""),
+        "surescriptsPrimaryTelephone": rec.get("Surescripts Primary Telephone", ""),
+        "surescriptsSPI": rec.get("Surescripts SPI", ""),
+        "surescriptsState": rec.get("Surescripts State", ""),
     }
-}
 
-SMB_PREFIX = "smb://louiswsts1221.rsc.humad.com/FtpRoot"
-DBFS_MOUNT = "/dbfs/mnt/smb"
-EXTRACT_ROOT = "/dbfs/tmp/extracted"
+mapped_records = []
 
-zip_filename = file_doc["Name"]
+for rec in records:
+    mapped_records.append(mapper(rec))
 
-dbfs_dir = file_doc["original"]["directory"].replace(
-    SMB_PREFIX,
-    DBFS_MOUNT
-)
-
-zip_path = f"{dbfs_dir}/{zip_filename}"
-
-extract_dir = f"{EXTRACT_ROOT}/{zip_filename.replace('.zip','')}"
-os.makedirs(extract_dir, exist_ok=True)
-
-with zipfile.ZipFile(zip_path, "r") as zip_ref:
-    zip_ref.extractall(extract_dir)
-
-print("ZIP extracted to:", extract_dir)
-print("Extracted files:", os.listdir(extract_dir))
+print("✅ Total mapped records:", len(mapped_records))
+print(mapped_records[0])
