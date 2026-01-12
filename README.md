@@ -1,30 +1,13 @@
-def mapper(rec: dict) -> dict:
-    return {
-        "NPI": rec.get("NPI", ""),
-        "First Name": rec.get("First Name", ""),
-        "Last Name": rec.get("Last Name", ""),
+pipeline = dbutils.widgets.get("pipeline").strip().lower()
+print("Pipeline received:", pipeline)
 
-        "primaryTelephone": rec.get("Primary Telephone", ""),
-        "state": rec.get("State", ""),
-        "stateLicense": rec.get("State License", ""),
-        "suffix": rec.get("Suffix", ""),
+if pipeline == "incremental_pipeline":
+    # Route to incremental pipeline notebook
+    dbutils.notebook.run("/Workspace/other_pipeline_notebook_incremental", 0)
+    
+elif pipeline == "full_pipeline":
+    # Example: route to full pipeline notebook
+    dbutils.notebook.run("/Workspace/other_pipeline_notebook_full", 0)
 
-        "surescriptsAddressLine1": rec.get("Surescripts Address Line1", ""),
-        "surescriptsAddressLine2": rec.get("Surescripts Address Line2", ""),
-        "surescriptsCity": rec.get("Surescripts City", ""),
-        "surescriptsCountryCode": rec.get("Surescripts Country Code", ""),
-        "surescriptsFax": rec.get("Surescripts Fax", ""),
-        "surescriptsPermissions": rec.get("Surescripts Permissions", ""),
-        "surescriptsPostalCode": rec.get("Surescripts Postal Code", ""),
-        "surescriptsPrimaryTelephone": rec.get("Surescripts Primary Telephone", ""),
-        "surescriptsSPI": rec.get("Surescripts SPI", ""),
-        "surescriptsState": rec.get("Surescripts State", ""),
-    }
-
-mapped_records = []
-
-for rec in records:
-    mapped_records.append(mapper(rec))
-
-print("✅ Total mapped records:", len(mapped_records))
-print(mapped_records[0])
+else:
+    raise Exception(f"Invalid pipeline name: {pipeline}")
